@@ -1,0 +1,70 @@
+# Dockerfile for torchtitan on OCI OKE with NVIDIA CUDA GPUs (e.g. BM.GPU4.8).
+#
+# Build:
+#   docker build -f kubernetes/Dockerfile.cuda \
+#     -t <registry>/torchtitan:cuda-<tag> .
+#
+# Base image guidance comes from internal NVIDIA image notes shared by the team.
+
+ARG BASE_IMAGE=nvcr.io/nvidia/cuda-dl-base:26.01-cuda13.1-inference-devel-ubuntu24.04
+ARG NCCL_PKG_VERSION=
+
+FROM ${BASE_IMAGE}
+
+ARG DEBIAN_FRONTEND=noninteractive
+ARG NCCL_PKG_VERSION
+
+ENV PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    infiniband-diags \
+    openssh-server \
+    kmod \
+    wget \
+    ca-certificates \
+    iproute2 \
+    net-tools \
+    iputils-ping \
+    curl \
+    tcpdump \
+    ethtool \
+    lsof \
+    pciutils \
+    numactl \
+    iperf3 \
+    git \
+    && if [ -n "${NCCL_PKG_VERSION}" ]; then \
+        CUDA_ARCH=$([ "$(dpkg --print-architecture)" = "amd64" ] && echo "x86_64" || echo "sbsa") \
+        && wget -q https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/${CUDA_ARCH}/cuda-keyring_1.1-1_all.deb \
+        && dpkg -i cuda-keyring_1.1-1_all.deb \
+        && rm cuda-keyring_1.1-1_all.deb \
+        && apt-get update \
+        && apt-get install -y --no-install-recommends \
+            libnccl2=${NCCL_PKG_VERSION} \
+            libnccl-dev=${NCCL_PKG_VERSION}; \
+    fi \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN sed -i 's/[ #]\(.*StrictHostKeyChecking \).*/ \1no/g' /etc/ssh/ssh_config && \
+    echo "    UserKnownHostsFile /dev/null" >> /etc/ssh/ssh_config && \
+    sed -i 's/#\(StrictModes \).*/\1no/g' /etc/ssh/sshd_config && \
+    mkdir -p /var/run/sshd
+
+RUN curl -fsSL -o /usr/sbin/ibdev2netdev \
+    https://raw.githubusercontent.com/Mellanox/container_scripts/refs/heads/master/ibdev2netdev \
+    && chmod +x /usr/sbin/ibdev2netdev
+
+WORKDIR /workspace/torchtitan
+
+# Install Python dependencies before copying source to maximise layer caching.
+COPY requirements.txt .
+RUN pip install -r requirements.txt
+
+# Copy the full source tree and install torchtitan in editable mode.
+COPY . .
+RUN pip install -e .
+
+# Default entrypoint: bash (the JobSet manifest overrides this with torchrun).
+CMD ["bash"]
