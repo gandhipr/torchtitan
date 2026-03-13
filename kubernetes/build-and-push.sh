@@ -5,8 +5,8 @@
 #   ./kubernetes/build-and-push.sh [TARGET] [TAG]
 #
 # Targets:
-#   rocm  -> kubernetes/Dockerfile.rocm, iad.ocir.io/iduyx1qnmway/torchtitan
-#   cuda  -> kubernetes/Dockerfile.cuda, aga.ocir.io/hpc/cpv/torchtitan
+#   rocm  -> kubernetes/Dockerfile.rocm, "aga.ocir.io/hpc/cpv/torchtitan_rocm"
+#   cuda  -> kubernetes/Dockerfile.cuda, "aga.ocir.io/hpc/cpv/torchtitan_cuda"
 #
 # Backward-compatible usage:
 #   ./kubernetes/build-and-push.sh               # rocm-latest
@@ -35,11 +35,11 @@ fi
 
 case "${TARGET}" in
   rocm)
-    REGISTRY="iad.ocir.io/iduyx1qnmway"
+    REGISTRY="aga.ocir.io/hpc/cpv/torchtitan_rocm"
     DOCKERFILE="kubernetes/Dockerfile.rocm"
     ;;
   cuda)
-    REGISTRY="aga.ocir.io/hpc/cpv"
+    REGISTRY="aga.ocir.io/hpc/cpv/torchtitan_cuda"
     DOCKERFILE="kubernetes/Dockerfile.cuda"
     ;;
   *)
