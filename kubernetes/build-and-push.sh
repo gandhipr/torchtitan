@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+set -x
 # Build and push torchtitan images to OCI Container Registry.
 #
 # Usage:
@@ -51,7 +52,7 @@ esac
 FULL_IMAGE="${REGISTRY}/${IMAGE_NAME}:${TAG}"
 
 # Build from repo root so COPY . . captures the full torchtitan source tree.
-REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+REPO_ROOT="$(pwd)"
 
 BUILD_ARGS=()
 if [[ "${TARGET}" == "cuda" && -n "${NCCL_PKG_VERSION:-}" ]]; then

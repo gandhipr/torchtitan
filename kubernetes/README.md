@@ -22,15 +22,9 @@ You are now ready to deploy in the next steps.
 ### NVIDIA BM.GPU4.8 / A100 (2-node default)
 
 ```bash
-# Authenticate to OCIR first:
-docker login aga.ocir.io
-
 # Build and push CUDA image (defaults to tag cuda-latest if omitted)
 ./kubernetes/build-and-push.sh cuda a100-latest
 ```
-
-- Dockerfile: `kubernetes/Dockerfile.cuda`
-- Registry target: `aga.ocir.io/hpc/cpv/torchtitan:<tag>`
 
 ### AMD BM.GPU.MI300X.8
 
