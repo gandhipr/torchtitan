@@ -15,7 +15,7 @@ metadata:
 spec:
   namespaceSelector: {}
   resourceGroups:
-  - coveredResources: ["cpu", "memory", "nvidia.com/gpu"]
+  - coveredResources: ["cpu", "memory", "ephemeral-storage", "nvidia.com/gpu"]
     flavors:
     - name: default
       resources:
@@ -23,6 +23,8 @@ spec:
         nominalQuota: "200"
       - name: "memory"
         nominalQuota: "2Ti"
+      - name: "ephemeral-storage"
+        nominalQuota: "128Gi"
       - name: "nvidia.com/gpu"
         nominalQuota: "16"
 ---

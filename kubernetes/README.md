@@ -104,6 +104,7 @@ grep -q 'kueue.x-k8s.io/queue-name:' kubernetes/torchtitan-health-check-a100.job
   sed -i '/^  labels:/a\    kueue.x-k8s.io/queue-name: torchtitan-a100' kubernetes/torchtitan-health-check-a100.jobset.yaml
 
 # Verify queues are present
+kubectl get resourceflavor
 kubectl get clusterqueue
 kubectl get localqueue -n default
 
