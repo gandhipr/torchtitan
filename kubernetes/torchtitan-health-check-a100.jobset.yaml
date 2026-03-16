@@ -53,7 +53,7 @@ spec:
 
             containers:
             - name: torchtitan
-              image: aga.ocir.io/hpc/cpv/torchtitan:a100-latest
+              image: aga.ocir.io/hpc/cpv/torchtitan_cuda/torchtitan:a100-latest
               imagePullPolicy: Always
 
               command: ["/bin/bash", "-c"]
@@ -99,9 +99,9 @@ spec:
               - name: NNODES
                 value: "2"
               - name: LOCAL_BATCH_SIZE
-                value: "20"
+                value: "12"
               - name: SEQ_LEN
-                value: "8192"
+                value: "4096"
               - name: STEPS
                 value: "25"
               - name: COMPILE
@@ -122,6 +122,8 @@ spec:
                 value: "1"
               - name: NCCL_NET_PLUGIN
                 value: "none"
+              - name: PYTORCH_ALLOC_CONF
+                value: "expandable_segments:True"
 
               resources:
                 limits:

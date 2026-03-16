@@ -1,0 +1,28 @@
+# Kueue queues for torchtitan A100 JobSet label:
+#   kueue.x-k8s.io/queue-name: torchtitan-a100
+
+apiVersion: kueue.x-k8s.io/v1beta1
+kind: ClusterQueue
+metadata:
+  name: torchtitan-a100-cq
+spec:
+  namespaceSelector: {}
+  resourceGroups:
+  - coveredResources: ["cpu", "memory", "nvidia.com/gpu"]
+    flavors:
+    - name: default
+      resources:
+      - name: "cpu"
+        nominalQuota: "200"
+      - name: "memory"
+        nominalQuota: "2Ti"
+      - name: "nvidia.com/gpu"
+        nominalQuota: "16"
+---
+apiVersion: kueue.x-k8s.io/v1beta1
+kind: LocalQueue
+metadata:
+  name: torchtitan-a100
+  namespace: default
+spec:
+  clusterQueue: torchtitan-a100-cq

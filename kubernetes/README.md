@@ -22,9 +22,19 @@ You are now ready to deploy in the next steps.
 ### NVIDIA BM.GPU4.8 / A100 (2-node default)
 
 ```bash
-# Build and push CUDA image (defaults to tag cuda-latest if omitted)
-./kubernetes/build-and-push.sh cuda a100-latest
+# Pick a tag for this run (example: a100-dev-0316-0943)
+export TAG="a100-dev-$(date +%m%d-%H%M)"
+
+# Build and push CUDA image with that tag
+./kubernetes/build-and-push.sh cuda "${TAG}"
 ```
+
+What tag should you use?
+- For quick iteration: `a100-dev-<date>-<time>` (recommended)
+- For stable/shared runs: `a100-latest` or a release tag like `v1.0.0`
+
+The pushed CUDA image path is:
+`aga.ocir.io/hpc/cpv/torchtitan_cuda/torchtitan:${TAG}`
 
 ### AMD BM.GPU.MI300X.8
 
@@ -42,7 +52,50 @@ You are now ready to deploy in the next steps.
 
 ### NVIDIA BM.GPU4.8 / A100
 
+#### Option A (recommended now): run **without Kueue**
+
+Use this mode when you do **not** want queue admission:
+- Remove `kueue.x-k8s.io/queue-name` label from the JobSet.
+
 ```bash
+# Remove queue label so JobSet is not suspended waiting for LocalQueue/ClusterQueue.
+sed -i '/kueue.x-k8s.io\/queue-name:/d' kubernetes/torchtitan-health-check-a100.jobset.yaml
+
+# Keep image tag in sync with what you just pushed
+sed -i "s|image: .*|image: aga.ocir.io/hpc/cpv/torchtitan_cuda/torchtitan:${TAG}|" kubernetes/torchtitan-health-check-a100.jobset.yaml
+
+kubectl delete jobset torchtitan-health-check-a100 --ignore-not-found
+kubectl apply -f kubernetes/torchtitan-health-check-a100.jobset.yaml
+```
+
+#### Option B: run with Kueue [Not yet validated]
+
+Use this mode when you want queue admission/scheduling:
+- Keep/add `kueue.x-k8s.io/queue-name: torchtitan-a100` in the JobSet.
+
+```bash
+# Create matching ClusterQueue + LocalQueue for queue label "torchtitan-a100"
+kubectl apply -f kubernetes/kueue-a100.yaml
+
+# Ensure queue label exists in JobSet metadata.labels
+grep -q 'kueue.x-k8s.io/queue-name:' kubernetes/torchtitan-health-check-a100.jobset.yaml || \
+  sed -i '/^  labels:/a\    kueue.x-k8s.io/queue-name: torchtitan-a100' kubernetes/torchtitan-health-check-a100.jobset.yaml
+
+# Verify queues are present
+kubectl get clusterqueue
+kubectl get localqueue -n default
+
+# Keep image tag in sync with what you just pushed
+sed -i "s|image: .*|image: aga.ocir.io/hpc/cpv/torchtitan_cuda/torchtitan:${TAG}|" kubernetes/torchtitan-health-check-a100.jobset.yaml
+
+kubectl delete jobset torchtitan-health-check-a100 --ignore-not-found
+kubectl apply -f kubernetes/torchtitan-health-check-a100.jobset.yaml
+```
+
+```bash
+# (Optional) keep image tag in sync with what you just pushed
+sed -i "s|image: .*|image: aga.ocir.io/hpc/cpv/torchtitan_cuda/torchtitan:${TAG}|" kubernetes/torchtitan-health-check-a100.jobset.yaml
+
 kubectl apply -f kubernetes/torchtitan-health-check-a100.jobset.yaml
 ```
 
