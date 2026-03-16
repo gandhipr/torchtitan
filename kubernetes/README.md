@@ -2,6 +2,24 @@
 
 Runs `llama3_health_check` (Llama3-8B with synthetic data) on OCI OKE GPU nodes and reports TFLOPs/MFU. No dataset or tokenizer required.
 
+For an easy conceptual overview (sbatch vs JobSet, Kueue, secrets, pod states), see:
+`kubernetes/NOTES_README.md`
+
+## Choose your GPU shape first (important)
+
+Use the matching files/commands below to avoid mixing AMD and NVIDIA paths.
+
+| GPU Shape | Vendor | Build target | JobSet file | Kueue file |
+|---|---|---|---|---|
+| `BM.GPU4.8` | NVIDIA (A100) | `./kubernetes/build-and-push.sh cuda <tag>` | `kubernetes/torchtitan-health-check-a100.jobset.yaml` | `kubernetes/kueue-a100.yaml` |
+| `BM.GPU.MI300X.8` | AMD (MI300X) | `./kubernetes/build-and-push.sh rocm <tag>` | `kubernetes/torchtitan-health-check.jobset.yaml` | `kubernetes/kueue-mi300x.yaml` |
+
+Quick check of your cluster shape labels:
+
+```bash
+kubectl get nodes --show-labels | grep -E 'node.kubernetes.io/instance-type|nvidia.com/gpu.present|amd.com/gpu'
+```
+
 ## Setup
 
 Go to https://github.com/oracle-quickstart/oci-hpc-oke -> Deploy to Oracle Cloud to deploy your OKE cluster.
@@ -17,41 +35,38 @@ You are now ready to deploy in the next steps.
 - [Kueue](https://kueue.sigs.k8s.io/) installed (or remove the `kueue.x-k8s.io/queue-name` label from the JobSet)
 - OCI Container Registry credentials configured (`kubectl create secret` or instance principal)
 
-## Build and push image
+## Recommended run order (same steps, shape-specific commands)
 
-### NVIDIA BM.GPU4.8 / A100 (2-node default)
+### Step 1) Login + set tag
 
+**A100 (NVIDIA)**
 ```bash
-# Pick a tag for this run (example: a100-dev-0316-0943)
+docker login aga.ocir.io -u '<namespace>/<username>'
 export TAG="a100-dev-$(date +%m%d-%H%M)"
+```
 
-# Build and push CUDA image with that tag
+**MI300X (AMD)**
+```bash
+docker login aga.ocir.io -u '<namespace>/<username>'
+export TAG="rocm-dev-$(date +%m%d-%H%M)"
+```
+
+### Step 2) Build and push image
+
+**A100 (NVIDIA)**
+```bash
 ./kubernetes/build-and-push.sh cuda "${TAG}"
 ```
 
-What tag should you use?
-- For quick iteration: `a100-dev-<date>-<time>` (recommended)
-- For stable/shared runs: `a100-latest` or a release tag like `v1.0.0`
-
-The pushed CUDA image path is:
+Pushed image format (A100):
 `aga.ocir.io/hpc/cpv/torchtitan_cuda/torchtitan:${TAG}`
 
-### AMD BM.GPU.MI300X.8
-
+**MI300X (AMD)**
 ```bash
-# Authenticate to OCIR first, then:
-./kubernetes/build-and-push.sh rocm              # tags as rocm-latest
-./kubernetes/build-and-push.sh rocm v1.0.0       # optional custom tag
-# Backward-compatible usage still works:
-./kubernetes/build-and-push.sh v1.0.0
+./kubernetes/build-and-push.sh rocm "${TAG}"
 ```
 
-- Dockerfile: `kubernetes/Dockerfile.rocm` (base `docker.io/rocm/primus:v25.9_gfx942`)
-
-## OCIR pull secret (for private images)
-
-If pods fail with `ErrImagePull` / `ImagePullBackOff` and an anonymous pull error,
-create an OCIR pull secret and attach it to the `default` service account:
+### Step 3) Configure OCIR pull secret in cluster (one-time, both shapes)
 
 ```bash
 kubectl create secret docker-registry ocir-secret \
@@ -63,68 +78,50 @@ kubectl create secret docker-registry ocir-secret \
 
 kubectl patch serviceaccount default -n default \
   -p '{"imagePullSecrets":[{"name":"ocir-secret"}]}'
-
-# verify
-kubectl get sa default -n default -o yaml | grep -A3 imagePullSecrets
 ```
 
-> Note: `docker-email` is required by command syntax, but any placeholder value is fine.
+### Step 4) Set image tag in JobSet
 
-## Deploy
-
-### NVIDIA BM.GPU4.8 / A100
-
-#### Option A (recommended now): run **without Kueue**
-
-Use this mode when you do **not** want queue admission:
-- Remove `kueue.x-k8s.io/queue-name` label from the JobSet.
-
+**A100 (NVIDIA)**
 ```bash
-# Remove queue label so JobSet is not suspended waiting for LocalQueue/ClusterQueue.
+sed -i "s|image: .*|image: aga.ocir.io/hpc/cpv/torchtitan_cuda/torchtitan:${TAG}|" kubernetes/torchtitan-health-check-a100.jobset.yaml
+```
+
+**MI300X (AMD)**
+```bash
+# update this only if you use a custom ROCm tag
+sed -i "s|image: .*|image: aga.ocir.io/hpc/cpv/torchtitan_rocm/torchtitan:${TAG}|" kubernetes/torchtitan-health-check.jobset.yaml
+```
+
+### Step 5A) Deploy without Kueue (recommended for bring-up)
+
+**A100 (NVIDIA)**
+```bash
 sed -i '/kueue.x-k8s.io\/queue-name:/d' kubernetes/torchtitan-health-check-a100.jobset.yaml
-
-# Keep image tag in sync with what you just pushed
-sed -i "s|image: .*|image: aga.ocir.io/hpc/cpv/torchtitan_cuda/torchtitan:${TAG}|" kubernetes/torchtitan-health-check-a100.jobset.yaml
-
 kubectl delete jobset torchtitan-health-check-a100 --ignore-not-found
 kubectl apply -f kubernetes/torchtitan-health-check-a100.jobset.yaml
 ```
 
-#### Option B: run with Kueue [Not yet validated]
-
-Use this mode when you want queue admission/scheduling:
-- Keep/add `kueue.x-k8s.io/queue-name: torchtitan-a100` in the JobSet.
-
+**MI300X (AMD)**
 ```bash
-# Create matching ClusterQueue + LocalQueue for queue label "torchtitan-a100"
+sed -i '/kueue.x-k8s.io\/queue-name:/d' kubernetes/torchtitan-health-check.jobset.yaml
+kubectl delete jobset torchtitan-health-check --ignore-not-found
+kubectl apply -f kubernetes/torchtitan-health-check.jobset.yaml
+```
+
+### Step 5B) Deploy with Kueue (optional)
+
+**A100 (NVIDIA)**
+```bash
 kubectl apply -f kubernetes/kueue-a100.yaml
-
-# Ensure queue label exists in JobSet metadata.labels
-grep -q 'kueue.x-k8s.io/queue-name:' kubernetes/torchtitan-health-check-a100.jobset.yaml || \
-  sed -i '/^  labels:/a\    kueue.x-k8s.io/queue-name: torchtitan-a100' kubernetes/torchtitan-health-check-a100.jobset.yaml
-
-# Verify queues are present
-kubectl get resourceflavor
-kubectl get clusterqueue
-kubectl get localqueue -n default
-
-# Keep image tag in sync with what you just pushed
-sed -i "s|image: .*|image: aga.ocir.io/hpc/cpv/torchtitan_cuda/torchtitan:${TAG}|" kubernetes/torchtitan-health-check-a100.jobset.yaml
-
 kubectl delete jobset torchtitan-health-check-a100 --ignore-not-found
 kubectl apply -f kubernetes/torchtitan-health-check-a100.jobset.yaml
 ```
 
+**MI300X (AMD)**
 ```bash
-# (Optional) keep image tag in sync with what you just pushed
-sed -i "s|image: .*|image: aga.ocir.io/hpc/cpv/torchtitan_cuda/torchtitan:${TAG}|" kubernetes/torchtitan-health-check-a100.jobset.yaml
-
-kubectl apply -f kubernetes/torchtitan-health-check-a100.jobset.yaml
-```
-
-### AMD BM.GPU.MI300X.8
-
-```bash
+kubectl apply -f kubernetes/kueue-mi300x.yaml
+kubectl delete jobset torchtitan-health-check --ignore-not-found
 kubectl apply -f kubernetes/torchtitan-health-check.jobset.yaml
 ```
 
@@ -168,7 +165,7 @@ Edit env vars in the manifest you are running:
 | Variable | Default | Description |
 |---|---|---|
 | `NNODES` | `2` (A100) / `4` (MI300X) | Number of nodes (also set `completions`/`parallelism`) |
-| `LOCAL_BATCH_SIZE` | `20` | Per-GPU batch size; increase to raise memory/MFU |
-| `SEQ_LEN` | `8192` | Sequence length |
+| `LOCAL_BATCH_SIZE` | `1` (A100) | Per-GPU batch size; decrease on OOM, increase when stable |
+| `SEQ_LEN` | `1024` (A100) | Sequence length; reduce to `1024` for quick smoke test |
 | `STEPS` | `25` | Training steps |
 | `COMPILE` | `0` | Set to `1` to enable `torch.compile` |
