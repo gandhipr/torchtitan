@@ -2,6 +2,13 @@
 #   kueue.x-k8s.io/queue-name: torchtitan-a100
 
 apiVersion: kueue.x-k8s.io/v1beta1
+kind: ResourceFlavor
+metadata:
+  name: default
+
+---
+
+apiVersion: kueue.x-k8s.io/v1beta1
 kind: ClusterQueue
 metadata:
   name: torchtitan-a100-cq
