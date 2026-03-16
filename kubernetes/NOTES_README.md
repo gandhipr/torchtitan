@@ -19,7 +19,7 @@ This is a short, practical guide for understanding the full flow on OKE.
 
 ## 3) Why 2 pods?
 
-In `torchtitan-health-check-a100.jobset.yaml`:
+In `torchtitan-health-check-cuda.jobset.yaml`:
 
 - `completions: 2`
 - `parallelism: 2`
@@ -37,8 +37,8 @@ Kueue is queue/admission control for batch workloads.
 - Skip Kueue for quick debugging and bring-up
 
 ### With Kueue
-- Keep label: `kueue.x-k8s.io/queue-name: torchtitan-a100`
-- Apply: `kubernetes/kueue-a100.yaml`
+- Keep label: `kueue.x-k8s.io/queue-name: torchtitan-cuda`
+- Apply: `kubernetes/kueue-cuda.yaml`
 
 ### Without Kueue
 - Remove queue label from JobSet

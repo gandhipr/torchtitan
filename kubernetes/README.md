@@ -11,7 +11,7 @@ Use the matching files/commands below to avoid mixing AMD and NVIDIA paths.
 
 | GPU Shape | Vendor | Build target | JobSet file | Kueue file |
 |---|---|---|---|---|
-| `BM.GPU4.8` | NVIDIA (A100) | `./kubernetes/build-and-push.sh cuda <tag>` | `kubernetes/torchtitan-health-check-a100.jobset.yaml` | `kubernetes/kueue-a100.yaml` |
+| `BM.GPU4.8` | NVIDIA (CUDA) | `./kubernetes/build-and-push.sh cuda <tag>` | `kubernetes/torchtitan-health-check-cuda.jobset.yaml` | `kubernetes/kueue-cuda.yaml` |
 | `BM.GPU.MI300X.8` | AMD (MI300X) | `./kubernetes/build-and-push.sh rocm <tag>` | `kubernetes/torchtitan-health-check.jobset.yaml` | `kubernetes/kueue-mi300x.yaml` |
 
 Quick check of your cluster shape labels:
@@ -39,10 +39,10 @@ You are now ready to deploy in the next steps.
 
 ### Step 1) Login + set tag
 
-**A100 (NVIDIA)**
+**CUDA/NVIDIA**
 ```bash
 docker login aga.ocir.io -u '<namespace>/<username>'
-export TAG="a100-dev-$(date +%m%d-%H%M)"
+export TAG="cuda-dev-$(date +%m%d-%H%M)"
 ```
 
 **MI300X (AMD)**
@@ -53,12 +53,12 @@ export TAG="rocm-dev-$(date +%m%d-%H%M)"
 
 ### Step 2) Build and push image
 
-**A100 (NVIDIA)**
+**CUDA/NVIDIA**
 ```bash
 ./kubernetes/build-and-push.sh cuda "${TAG}"
 ```
 
-Pushed image format (A100):
+Pushed image format (CUDA):
 `aga.ocir.io/hpc/cpv/torchtitan_cuda/torchtitan:${TAG}`
 
 **MI300X (AMD)**
@@ -82,9 +82,9 @@ kubectl patch serviceaccount default -n default \
 
 ### Step 4) Set image tag in JobSet
 
-**A100 (NVIDIA)**
+**CUDA/NVIDIA**
 ```bash
-sed -i "s|image: .*|image: aga.ocir.io/hpc/cpv/torchtitan_cuda/torchtitan:${TAG}|" kubernetes/torchtitan-health-check-a100.jobset.yaml
+sed -i "s|image: .*|image: aga.ocir.io/hpc/cpv/torchtitan_cuda/torchtitan:${TAG}|" kubernetes/torchtitan-health-check-cuda.jobset.yaml
 ```
 
 **MI300X (AMD)**
@@ -95,11 +95,11 @@ sed -i "s|image: .*|image: aga.ocir.io/hpc/cpv/torchtitan_rocm/torchtitan:${TAG}
 
 ### Step 5A) Deploy without Kueue (recommended for bring-up)
 
-**A100 (NVIDIA)**
+**CUDA/NVIDIA**
 ```bash
-sed -i '/kueue.x-k8s.io\/queue-name:/d' kubernetes/torchtitan-health-check-a100.jobset.yaml
-kubectl delete jobset torchtitan-health-check-a100 --ignore-not-found
-kubectl apply -f kubernetes/torchtitan-health-check-a100.jobset.yaml
+sed -i '/kueue.x-k8s.io\/queue-name:/d' kubernetes/torchtitan-health-check-cuda.jobset.yaml
+kubectl delete jobset torchtitan-health-check-cuda --ignore-not-found
+kubectl apply -f kubernetes/torchtitan-health-check-cuda.jobset.yaml
 ```
 
 **MI300X (AMD)**
@@ -111,11 +111,11 @@ kubectl apply -f kubernetes/torchtitan-health-check.jobset.yaml
 
 ### Step 5B) Deploy with Kueue (optional)
 
-**A100 (NVIDIA)**
+**CUDA/NVIDIA**
 ```bash
-kubectl apply -f kubernetes/kueue-a100.yaml
-kubectl delete jobset torchtitan-health-check-a100 --ignore-not-found
-kubectl apply -f kubernetes/torchtitan-health-check-a100.jobset.yaml
+kubectl apply -f kubernetes/kueue-cuda.yaml
+kubectl delete jobset torchtitan-health-check-cuda --ignore-not-found
+kubectl apply -f kubernetes/torchtitan-health-check-cuda.jobset.yaml
 ```
 
 **MI300X (AMD)**
@@ -129,10 +129,10 @@ kubectl apply -f kubernetes/torchtitan-health-check.jobset.yaml
 
 ```bash
 # Watch pod status
-kubectl get pods -w -l jobset.sigs.k8s.io/jobset-name=torchtitan-health-check-a100
+kubectl get pods -w -l jobset.sigs.k8s.io/jobset-name=torchtitan-health-check-cuda
 
 # View logs (training metrics + health check summary)
-kubectl logs -l jobset.sigs.k8s.io/jobset-name=torchtitan-health-check-a100 --tail=20
+kubectl logs -l jobset.sigs.k8s.io/jobset-name=torchtitan-health-check-cuda --tail=20
 ```
 
 For AMD, replace the label value with `torchtitan-health-check`.
@@ -151,7 +151,7 @@ TORCHTITAN HEALTH CHECK RESULT
 ## Clean up
 
 ```bash
-kubectl delete jobset torchtitan-health-check-a100
+kubectl delete jobset torchtitan-health-check-cuda
 ```
 
 For AMD, delete `torchtitan-health-check`.
@@ -159,13 +159,18 @@ For AMD, delete `torchtitan-health-check`.
 ## Tuning
 
 Edit env vars in the manifest you are running:
-- NVIDIA: `torchtitan-health-check-a100.jobset.yaml`
+- NVIDIA: `torchtitan-health-check-cuda.jobset.yaml`
 - AMD: `torchtitan-health-check.jobset.yaml`
 
 | Variable | Default | Description |
 |---|---|---|
-| `NNODES` | `2` (A100) / `4` (MI300X) | Number of nodes (also set `completions`/`parallelism`) |
-| `LOCAL_BATCH_SIZE` | `1` (A100) | Per-GPU batch size; decrease on OOM, increase when stable |
-| `SEQ_LEN` | `1024` (A100) | Sequence length; reduce to `1024` for quick smoke test |
+| `NNODES` | `2` (CUDA default) / `4` (MI300X) | Number of nodes (also set `completions`/`parallelism`) |
+| `LOCAL_BATCH_SIZE` | `1` (CUDA default) | Per-GPU batch size; decrease on OOM, increase when stable |
+| `SEQ_LEN` | `1024` (CUDA default) | Sequence length; reduce to `1024` for quick smoke test |
 | `STEPS` | `25` | Training steps |
 | `COMPILE` | `0` | Set to `1` to enable `torch.compile` |
+
+## NVIDIA/CUDA files
+
+- `kubernetes/torchtitan-health-check-cuda.jobset.yaml`
+- `kubernetes/kueue-cuda.yaml`
