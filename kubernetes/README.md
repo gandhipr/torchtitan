@@ -34,6 +34,15 @@ You are now ready to deploy in the next steps.
 - [JobSet controller](https://github.com/kubernetes-sigs/jobset) installed
 - [Kueue](https://kueue.sigs.k8s.io/) installed (or remove the `kueue.x-k8s.io/queue-name` label from the JobSet)
 - OCI Container Registry credentials configured (`kubectl create secret` or instance principal)
+- If Docker is not installed on your build host, install and verify it first:
+
+```bash
+sudo apt-get install -y docker.io
+ls -l /var/run/docker.sock
+sudo usermod -aG docker ubuntu
+newgrp docker
+docker ps
+```
 
 ## Recommended run order (same steps, shape-specific commands)
 
