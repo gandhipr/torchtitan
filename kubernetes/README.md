@@ -48,6 +48,28 @@ The pushed CUDA image path is:
 
 - Dockerfile: `kubernetes/Dockerfile.rocm` (base `docker.io/rocm/primus:v25.9_gfx942`)
 
+## OCIR pull secret (for private images)
+
+If pods fail with `ErrImagePull` / `ImagePullBackOff` and an anonymous pull error,
+create an OCIR pull secret and attach it to the `default` service account:
+
+```bash
+kubectl create secret docker-registry ocir-secret \
+  --docker-server=aga.ocir.io \
+  --docker-username='<namespace>/<username>' \
+  --docker-password='<auth-token>' \
+  --docker-email='noreply@example.com' \
+  -n default --dry-run=client -o yaml | kubectl apply -f -
+
+kubectl patch serviceaccount default -n default \
+  -p '{"imagePullSecrets":[{"name":"ocir-secret"}]}'
+
+# verify
+kubectl get sa default -n default -o yaml | grep -A3 imagePullSecrets
+```
+
+> Note: `docker-email` is required by command syntax, but any placeholder value is fine.
+
 ## Deploy
 
 ### NVIDIA BM.GPU4.8 / A100
