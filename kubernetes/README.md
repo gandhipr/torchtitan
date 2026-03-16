@@ -11,7 +11,7 @@ Use the matching files/commands below to avoid mixing AMD and NVIDIA paths.
 
 | GPU Shape | Vendor | Build target | JobSet file | Kueue file |
 |---|---|---|---|---|
-| `BM.GPU4.8` | NVIDIA (CUDA) | `./kubernetes/build-and-push.sh cuda <tag>` | `kubernetes/torchtitan-health-check-cuda.jobset.yaml` | `kubernetes/kueue-cuda.yaml` |
+| `BM.GPU.B4.8` / `BM.GPU4.8` | NVIDIA (CUDA) | `./kubernetes/build-and-push.sh cuda <tag>` | `kubernetes/torchtitan-health-check-cuda.jobset.yaml` | `kubernetes/kueue-cuda.yaml` |
 | `BM.GPU.MI300X.8` | AMD (MI300X) | `./kubernetes/build-and-push.sh rocm <tag>` | `kubernetes/torchtitan-health-check.jobset.yaml` | `kubernetes/kueue-mi300x.yaml` |
 
 Quick check of your cluster shape labels:
@@ -19,6 +19,10 @@ Quick check of your cluster shape labels:
 ```bash
 kubectl get nodes --show-labels | grep -E 'node.kubernetes.io/instance-type|nvidia.com/gpu.present|amd.com/gpu'
 ```
+
+> NVIDIA shape label note: some clusters report `BM.GPU.B4.8`, others `BM.GPU4.8`.
+> Always match `node.kubernetes.io/instance-type` in your JobSet to the exact label
+> shown by `kubectl get nodes --show-labels`.
 
 ## Setup
 
@@ -102,7 +106,17 @@ sed -i "s|image: .*|image: aga.ocir.io/hpc/cpv/torchtitan_cuda/torchtitan:${TAG}
 sed -i "s|image: .*|image: aga.ocir.io/hpc/cpv/torchtitan_rocm/torchtitan:${TAG}|" kubernetes/torchtitan-health-check.jobset.yaml
 ```
 
-### Step 5A) Deploy without Kueue (recommended for bring-up)
+### Step 5) Verify/update NVIDIA node selector (do once before deploy)
+
+```bash
+# See the actual NVIDIA instance-type label in your cluster
+kubectl get nodes --show-labels | grep -E 'node.kubernetes.io/instance-type=.*BM.GPU'
+
+# Example: update selector to BM.GPU.B4.8 if that's what your cluster uses
+sed -i "s/node.kubernetes.io\/instance-type: .*/node.kubernetes.io\/instance-type: BM.GPU.B4.8/" kubernetes/torchtitan-health-check-cuda.jobset.yaml
+```
+
+### Step 6A) Deploy without Kueue (recommended for bring-up)
 
 **CUDA/NVIDIA**
 ```bash
@@ -118,7 +132,7 @@ kubectl delete jobset torchtitan-health-check --ignore-not-found
 kubectl apply -f kubernetes/torchtitan-health-check.jobset.yaml
 ```
 
-### Step 5B) Deploy with Kueue (optional)
+### Step 6B) Deploy with Kueue (optional)
 
 **CUDA/NVIDIA**
 ```bash
@@ -164,6 +178,16 @@ kubectl delete jobset torchtitan-health-check-cuda
 ```
 
 For AMD, delete `torchtitan-health-check`.
+
+## Small summary: Fields you typically update
+
+In most runs, these are the only fields you tweak:
+
+- **Image tag** in JobSet (`image:`) to match the image you just pushed
+- **Node selector** for NVIDIA shape label if needed (for example `BM.GPU.B4.8` vs `BM.GPU4.8`)
+- **Kueue label usage**
+  - keep queue label when using Kueue
+  - remove queue label for direct (non-Kueue) scheduling
 
 ## Tuning
 
