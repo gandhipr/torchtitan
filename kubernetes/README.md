@@ -160,6 +160,21 @@ kubectl logs -l jobset.sigs.k8s.io/jobset-name=torchtitan-health-check-cuda --ta
 
 For AMD, replace the label value with `torchtitan-health-check`.
 
+### Save logs to one folder on your VM (post-run)
+
+Use the helper script to collect all pod logs for a JobSet into one run folder:
+
+```bash
+bash kubernetes/collect_jobset_logs.sh
+```
+
+Output structure:
+- `./logs/<jobset>/run-<timestamp>/pods/<pod>.log` (current logs)
+- `./logs/<jobset>/run-<timestamp>/pods/<pod>.previous.log` (previous container logs, if restart happened)
+- `./logs/<jobset>/run-<timestamp>/all-pods.log` (merged view)
+
+Run this after job completion and before deleting pods/JobSet.
+
 The last lines of each pod's log print:
 ```
 ===========================================
