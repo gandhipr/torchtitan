@@ -87,3 +87,37 @@ kubectl patch serviceaccount default -n default \
 - `ContainerCreating` -> image pull / startup in progress
 - `ErrImagePull` -> auth/path/tag issue
 - `OutOfMemoryError` -> lower `LOCAL_BATCH_SIZE` and/or `SEQ_LEN`
+
+## 7) Basic tuning understanding: batch size vs sequence length
+
+When running training benchmarks, `LOCAL_BATCH_SIZE` and `SEQ_LEN` both affect
+how hard the GPUs are pushed.
+
+- Higher **batch size** usually improves GPU utilization, up to a limit.
+- Higher **sequence length** increases work per sample, also up to a limit.
+- Increasing either one too much can cause failures (OOM, timeout, instability).
+
+So there is no simple “always proportional” or “always inverse” relationship.
+In practice, you tune both together and stop when runs stop improving or become
+unstable.
+
+Practical approach:
+1. Increase `SEQ_LEN` step by step until failure.
+2. At the max passing `SEQ_LEN`, increase `LOCAL_BATCH_SIZE` until failure.
+3. Rank passing runs by highest throughput (TFLOPs), then efficiency (MFU).
+
+## 8) `COMPILE=0` vs `COMPILE=1`
+
+- **`COMPILE=0`**: normal eager execution (no `torch.compile`)
+  - Usually more predictable
+  - Simpler debugging
+  - Lower startup overhead
+
+- **`COMPILE=1`**: enables `torch.compile` graph compilation
+  - Can improve steady-state speed/TFLOPs on some configs
+  - Can add compile/startup cost
+  - Can show different stability/performance behavior depending on shape/model/config
+
+So in practice:
+- `COMPILE=0` is a stable baseline
+- `COMPILE=1` is an optimization mode that may be faster (or sometimes not) for a given combo

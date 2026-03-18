@@ -2,6 +2,18 @@
 
 Runs `llama3_health_check` (Llama3-8B with synthetic data) on OCI OKE GPU nodes and reports TFLOPs/MFU. No dataset or tokenizer required.
 
+## Contents
+
+- [Choose your GPU shape first (important)](#choose-your-gpu-shape-first-important)
+- [Setup](#setup)
+- [Prerequisites (both AMD + NVIDIA)](#prerequisites-both-amd--nvidia)
+- [Recommended run order (same steps, shape-specific commands)](#recommended-run-order-same-steps-shape-specific-commands)
+- [Check results](#check-results)
+- [Clean up](#clean-up)
+- [Small summary: Fields you typically update](#small-summary-fields-you-typically-update)
+- [Tuning](#tuning)
+- [Benchmarking matrix](#benchmarking-matrix)
+
 For an easy conceptual overview (sbatch vs JobSet, Kueue, secrets, pod states), see:
 `kubernetes/NOTES_README.md`
 
@@ -218,7 +230,85 @@ Edit env vars in the manifest you are running:
 | `STEPS` | `25` | Training steps |
 | `COMPILE` | `0` | Set to `1` to enable `torch.compile` |
 
-## NVIDIA/CUDA files
+## Benchmarking matrix
 
-- `kubernetes/torchtitan-health-check-cuda.jobset.yaml`
-- `kubernetes/kueue-cuda.yaml`
+If you are doing repeated benchmarking runs, use this short path:
+
+- Do **Step 1** (login + tag)
+- Do **Step 2** (build + push)
+- Do **Step 3** (secret setup)
+- Do **Step 4** (update image in YAML)
+- Do **Step 5** (update node selector in YAML)
+- Then run:
+
+**CUDA/NVIDIA**
+```bash
+bash kubernetes/run_benchmark_matrix.sh
+```
+
+**AMD**
+```bash
+TEMPLATE="kubernetes/torchtitan-health-check.jobset.yaml" \
+bash kubernetes/run_benchmark_matrix.sh
+```
+
+`run_benchmark_matrix.sh` executes in this order for each benchmark case:
+
+- It treats the JobSet YAML as the source of truth.
+- For each run, it creates a temp manifest from that YAML.
+- It only changes run-specific values (`metadata.name`, `JOBSET_NAME`, `LOCAL_BATCH_SIZE`, `SEQ_LEN`, `COMPILE`, `STEPS`).
+- Then it applies that manifest, collects logs, and summarizes.
+
+Adaptive search behavior:
+- Loop order is: `compile -> steps -> seq_len -> batch_size`.
+- For a given `(compile, steps)`:
+  1. Start from `START_SEQ_LEN`, then try larger seq_len values (doubling) until first failure or `MAX_SEQ_LEN`.
+  2. Take the max passing seq_len.
+  3. At that seq_len, start from `START_BATCH_SIZE`, then try larger batch sizes (doubling) until first failure or `MAX_BATCH_SIZE`.
+- Step stopping (plateau logic):
+  - After finishing one `steps` value, compare best TFLOPs vs previous `steps` value.
+  - If change is within `STEP_PLATEAU_PCT`, stop trying larger `steps` for that **same compile bucket**.
+  - Then script continues to the next compile value (if present).
+
+Summary logic:
+- For each run, logs are collected first.
+- Metrics are parsed from logs into:
+  - `last_step`, `last_loss`, `last_tflops`, `last_mfu`
+  - `max_tflops`, `max_mfu`
+  - `tail_steps_count`, `tail_tflops_delta_pct`, `tail_stable`
+- One row per run is appended to `summary.csv` (including failed/timeout runs).
+- If aggregated log parsing is empty, script falls back to per-pod logs and picks
+  the pod with the highest parsed step.
+- `best_config.csv` is built from successful runs with valid metrics and ranked/sorted by:
+  1. highest `max_tflops`
+  2. highest `max_mfu`
+  3. fewer `steps`
+- Use `best_config.csv` to pick the winning config and inspect benchmark details
+  (batch size, seq len, compile, steps, TFLOPs/MFU).
+
+Tail stability fields (last few steps):
+- `tail_steps_count`: how many final parsed steps were checked.
+- `tail_tflops_delta_pct`: TFLOPs variation in the tail window, computed as
+  `((max_tail_tflops - min_tail_tflops) / avg_tail_tflops) * 100`.
+- `tail_stable`: `1` if tail variation is within threshold, else `0`.
+
+Tail stability knobs:
+- `TAIL_STEPS_WINDOW` (default `5`): number of final steps used for tail check.
+- `TAIL_STABILITY_PCT` (default `1.0`): max allowed tail TFLOPs delta percent to
+  mark run as stable.
+
+Values can be updated either:
+1. via CLI env vars for a run, or
+2. by editing defaults in `kubernetes/run_benchmark_matrix.sh`
+
+Example CLI override:
+
+```bash
+COMPILES="0" \
+STEPS="25 50 100" \
+START_SEQ_LEN="1024" MAX_SEQ_LEN="8192" \
+START_BATCH_SIZE="1" MAX_BATCH_SIZE="16" \
+STEP_PLATEAU_PCT="1.0" \
+CLEANUP_AFTER_RUN="1" \
+bash kubernetes/run_benchmark_matrix.sh
+```
