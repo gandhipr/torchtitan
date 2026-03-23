@@ -108,6 +108,7 @@ spec:
                   -m torchtitan.train \
                     --module llama3 \
                     --config llama3_health_check \
+                    --metrics.log_freq 1 \
                   2>&1 | tee /tmp/torchtitan.log
 
                 # ── Health-check report (printed on every node, visible in pod logs) ──
