@@ -66,10 +66,22 @@ AttentionMasksType = dict[str, BlockMask] | BlockMask | VarlenMetadata
 
 
 class VarlenAttentionWrapper(torch.nn.Module):
-    _compiled_varlen_attn: ClassVar[Callable | None] = (
-        torch.compile(varlen_attn, mode="max-autotune-no-cudagraphs")
-        if _VARLEN_AVAILABLE else None
-    )
+    _compiled_varlen_attn: ClassVar[Callable | None] = None
+
+    @classmethod
+    def _get_varlen_attn_callable(cls) -> Callable:
+        if cls._compiled_varlen_attn is None:
+            if not _VARLEN_AVAILABLE:
+                raise ImportError(
+                    "VarlenAttentionWrapper requires a recent PyTorch nightly with "
+                    "torch.nn.attention.varlen support."
+                )
+            # Compile lazily to avoid import-time NVRTC/Triton failures when varlen
+            # attention is not used by the selected model config.
+            cls._compiled_varlen_attn = torch.compile(
+                varlen_attn, mode="max-autotune-no-cudagraphs"
+            )
+        return cls._compiled_varlen_attn
 
     def forward(
         self,
@@ -79,11 +91,6 @@ class VarlenAttentionWrapper(torch.nn.Module):
         attention_masks: VarlenMetadata,
         scale: float | None = None,
     ) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor]:
-        if not _VARLEN_AVAILABLE:
-            raise ImportError(
-                "VarlenAttentionWrapper requires a recent PyTorch nightly with "
-                "torch.nn.attention.varlen support."
-            )
         cu_seq_q = attention_masks.cu_seq_q
         cu_seq_k = attention_masks.cu_seq_k
         max_q = attention_masks.max_q
@@ -97,7 +104,7 @@ class VarlenAttentionWrapper(torch.nn.Module):
             0, 1
         )  # (bs * seqlen, n_kv_heads, head_dim)
 
-        return VarlenAttentionWrapper._compiled_varlen_attn(
+        return VarlenAttentionWrapper._get_varlen_attn_callable()( 
             xq_packed,
             xk_packed,
             xv_packed,
@@ -133,18 +140,26 @@ class FlexAttentionWrapper(torch.nn.Module):
         block_mask as a keyword argument to be compatible with _ContextParallel.
     """
 
-    _compiled_flex_attn: ClassVar[Callable] = torch.compile(
-        flex_attention,
-        # This options also encapsulate max-autotune-no-cudagraphs.
-        options={
-            # wrap_inductor_compiled_regions omitted: not available in older torch
-            # versions and defaults to False (disabled) in newer ones.
-            # TODO: re-enable after https://github.com/pytorch/pytorch/pull/175733
-            "max_autotune": True,
-            "coordinate_descent_tuning": True,
-            "triton.cudagraphs": False,
-        },
-    )
+    _compiled_flex_attn: ClassVar[Callable | None] = None
+
+    @classmethod
+    def _get_flex_attn_callable(cls) -> Callable:
+        if cls._compiled_flex_attn is None:
+            # Compile lazily to avoid import-time NVRTC/Triton failures when flex
+            # attention is not used by the selected model config.
+            cls._compiled_flex_attn = torch.compile(
+                flex_attention,
+                # This options also encapsulate max-autotune-no-cudagraphs.
+                options={
+                    # wrap_inductor_compiled_regions omitted: not available in older torch
+                    # versions and defaults to False (disabled) in newer ones.
+                    # TODO: re-enable after https://github.com/pytorch/pytorch/pull/175733
+                    "max_autotune": True,
+                    "coordinate_descent_tuning": True,
+                    "triton.cudagraphs": False,
+                },
+            )
+        return cls._compiled_flex_attn
 
     def forward(
         self,
@@ -165,7 +180,7 @@ class FlexAttentionWrapper(torch.nn.Module):
         #    `FlexAttentionWrapper._compiled_flex_attn` is correct.
         # 3. Used `return_lse` instead of `return_aux` because of easier TP module notation
         #    to convert `lse` to be DTensor.
-        return FlexAttentionWrapper._compiled_flex_attn(
+        return FlexAttentionWrapper._get_flex_attn_callable()( 
             q,
             k,
             v,
@@ -313,11 +328,16 @@ def get_sliding_window_mask_mod(window_size: int) -> _mask_mod_signature:
     return sliding_window_mod
 
 
-_compiled_create_block_mask = torch.compile(create_block_mask)
+_compiled_create_block_mask: Callable | None = None
 
 
 def create_attention_mask(*args, **kwargs):
     """Create an attention mask using compiled create_block_mask."""
+    global _compiled_create_block_mask
+    if _compiled_create_block_mask is None:
+        # Compile lazily to avoid import-time NVRTC/Triton failures when flex
+        # attention block masks are not used by the selected model config.
+        _compiled_create_block_mask = torch.compile(create_block_mask)
     return _compiled_create_block_mask(*args, **kwargs)
 
 
