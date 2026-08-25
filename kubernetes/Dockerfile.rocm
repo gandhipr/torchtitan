@@ -14,6 +14,14 @@ ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1
 
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libopenmpi-dev \
+    openmpi-bin \
+    openssh-client \
+    openssh-server \
+    && rm -rf /var/lib/apt/lists/* \
+    && mkdir -p /run/sshd /var/run/sshd
+
 WORKDIR /workspace/torchtitan
 
 # Install Python dependencies before copying source to maximise layer caching.
@@ -24,5 +32,12 @@ RUN pip install -r requirements.txt
 COPY . .
 RUN pip install -e .
 
-# Default entrypoint: bash (the JobSet manifest overrides this with torchrun).
+# Fail the image build when an MPIJob runtime dependency is unavailable.
+RUN command -v mpirun \
+    && command -v ssh \
+    && command -v sshd \
+    && command -v ssh-keyscan \
+    && command -v torchrun
+
+# Default entrypoint: bash (the MPIJob manifest overrides this at runtime).
 CMD ["bash"]
