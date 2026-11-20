@@ -41,7 +41,7 @@ RUN python -c 'import sys, torch; assert sys.version_info >= (3, 11) and torch.v
 # Copy the full source tree and install torchtitan in editable mode.
 COPY . .
 RUN python -m pip install -c /tmp/primus-torch.txt -e . \
-    && { python -m pip check >/tmp/torchtitan-after.txt || test "$?" = 1; } \
+    && { if python -m pip check >/tmp/torchtitan-after.txt; then : >/tmp/torchtitan-after.txt; else test "$?" = 1; fi; } \
     && sort -u /tmp/torchtitan-after.txt >/tmp/torchtitan-check.txt
 RUN comm -13 /tmp/primus-baseline-check.txt /tmp/torchtitan-check.txt >/tmp/new-conflicts.txt \
     && cat /tmp/new-conflicts.txt && test ! -s /tmp/new-conflicts.txt \
