@@ -18,6 +18,7 @@ RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-reco
     openmpi-bin \
     openssh-client \
     openssh-server \
+    && apt-get purge -y python3-cryptography python3-httplib2 python3-jwt python3-oauthlib \
     && rm -rf /var/lib/apt/lists/* \
     && mkdir -p /run/sshd /var/run/sshd
 
