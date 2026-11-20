@@ -69,7 +69,7 @@ RUN python3 -m venv "${VIRTUAL_ENV}"
 
 # Install Python dependencies before copying source to maximise layer caching.
 COPY kubernetes/image-constraints.txt /opt/torchtitan-constraints.txt
-ARG PIP_CONSTRAINT=/opt/torchtitan-constraints.txt
+ENV PIP_CONSTRAINT=/opt/torchtitan-constraints.txt
 COPY requirements.txt .
 RUN python -m pip install --upgrade pip setuptools wheel \
     && python -m pip install --index-url https://download.pytorch.org/whl/cu130 \
@@ -77,9 +77,17 @@ RUN python -m pip install --upgrade pip setuptools wheel \
     && python -m pip install "torch==2.14.1+cu130" -r requirements.txt
 
 COPY . .
-RUN python -m pip install -e . && python -m pip check \
+# NVIDIA's ARM64 cuSPARSELt 0.8.1 wheel has an internal "sbsa" platform
+# tag. Verify the shared library loads and allow only that exact pip message.
+RUN python -m pip install -e . \
+    && { python -m pip check > /tmp/pip-check.txt || { \
+        cat /tmp/pip-check.txt && test "$(uname -m)" = aarch64 \
+        && test "$(cat /tmp/pip-check.txt)" = 'nvidia-cusparselt-cu13 0.8.1 is not supported on this platform' \
+        && python -c "import ctypes, importlib.metadata as m; d=m.distribution('nvidia-cusparselt-cu13'); ctypes.CDLL(str(next(d.locate_file(f) for f in d.files if f.name == 'libcusparseLt.so.0')))"; \
+    }; } \
     && python -c "import torch; assert torch.version.cuda and not torch.version.hip" \
     && command -v mpirun && command -v ssh && command -v sshd \
     && command -v ssh-keyscan && command -v torchrun
 
+ENV PIP_CONSTRAINT=""
 CMD ["bash"]
