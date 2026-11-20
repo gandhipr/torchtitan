@@ -4,17 +4,16 @@
 #   docker build -f kubernetes/Dockerfile.rocm \
 #     -t <registry>/torchtitan:rocm-<tag> .
 #
-# Base image: AMD's curated primus image (gfx942 = MI300X) which ships the
-# correct PyTorch + ROCm + RCCL stack verified to work on MI300X hardware.
+# AMD Primus supplies the ROCm-enabled PyTorch and RCCL stack.
 # See: https://rocm.docs.amd.com/projects/ai-developer-hub/en/latest/notebooks/pretrain/torchtitan_deepseek.html
 
-FROM docker.io/rocm/primus:v25.9_gfx942
+FROM docker.io/rocm/primus:v26.9.1@sha256:405cd0d72827656449533333a7581f973ae2bab0dd163e715c11ee4e3caca40f
 
 ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-recommends \
     libopenmpi-dev \
     openmpi-bin \
     openssh-client \
@@ -25,12 +24,22 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /workspace/torchtitan
 
 # Install Python dependencies before copying source to maximise layer caching.
+COPY kubernetes/image-constraints.txt /opt/torchtitan-constraints.txt
+ARG PIP_CONSTRAINT=/opt/torchtitan-constraints.txt
 COPY requirements.txt .
-RUN pip install -r requirements.txt
+# Keep the vendor's GPU-enabled torch build while refreshing installed
+# Python packages identified in the scan, including transitive dependencies.
+RUN python -c 'import sys, torch; assert sys.version_info >= (3, 11) and torch.version.hip' \
+    && python -c 'from importlib.metadata import version; print("torch==" + version("torch"))' >/tmp/primus-torch.txt \
+    && python -m pip list --format=freeze | cut -d= -f1 >/tmp/primus-packages.txt \
+    && awk -F '[>=]+' 'NR==FNR {installed[tolower($1)]=1; next} tolower($1) in installed && $1!="torch"' \
+        /tmp/primus-packages.txt /opt/torchtitan-constraints.txt >/tmp/primus-upgrades.txt \
+    && python -m pip install --upgrade -c /tmp/primus-torch.txt -r /tmp/primus-upgrades.txt -r requirements.txt
 
 # Copy the full source tree and install torchtitan in editable mode.
 COPY . .
-RUN pip install -e .
+RUN python -m pip install -c /tmp/primus-torch.txt -e . && python -m pip check \
+    && python -c "import torch; assert torch.version.hip"
 
 # Fail the image build when an MPIJob runtime dependency is unavailable.
 RUN command -v mpirun \
