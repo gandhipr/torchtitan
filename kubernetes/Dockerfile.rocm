@@ -31,15 +31,21 @@ COPY requirements.txt .
 # Python packages identified in the scan, including transitive dependencies.
 RUN python -c 'import sys, torch; assert sys.version_info >= (3, 11) and torch.version.hip' \
     && python -c 'from importlib.metadata import version; print("torch==" + version("torch"))' >/tmp/primus-torch.txt \
+    && { python -m pip check > /tmp/primus-before.txt || test "$?" = 1; } \
+    && sort -u /tmp/primus-before.txt >/tmp/primus-baseline-check.txt \
     && python -m pip list --format=freeze | cut -d= -f1 >/tmp/primus-packages.txt \
     && awk -F '[>=]+' 'NR==FNR {installed[tolower($1)]=1; next} tolower($1) in installed && $1!="torch"' \
         /tmp/primus-packages.txt /opt/torchtitan-constraints.txt >/tmp/primus-upgrades.txt \
-    && python -m pip install --upgrade -c /tmp/primus-torch.txt -r /tmp/primus-upgrades.txt -r requirements.txt
+    && python -m pip install "pyarrow<26" "fsspec==2026.6.0" -c /tmp/primus-torch.txt -r /tmp/primus-upgrades.txt -r requirements.txt
 
 # Copy the full source tree and install torchtitan in editable mode.
 COPY . .
-RUN python -m pip install -c /tmp/primus-torch.txt -e . && python -m pip check \
-    && python -c "import torch; assert torch.version.hip"
+RUN python -m pip install -c /tmp/primus-torch.txt -e . \
+    && { python -m pip check >/tmp/torchtitan-after.txt || test "$?" = 1; } \
+    && sort -u /tmp/torchtitan-after.txt >/tmp/torchtitan-check.txt
+RUN comm -13 /tmp/primus-baseline-check.txt /tmp/torchtitan-check.txt >/tmp/new-conflicts.txt \
+    && cat /tmp/new-conflicts.txt && test ! -s /tmp/new-conflicts.txt \
+    && python -c "import torch; from torchtitan.models.llama3.config_registry import llama3_health_check; assert torch.version.hip; llama3_health_check()"
 
 # Fail the image build when an MPIJob runtime dependency is unavailable.
 RUN command -v mpirun \
